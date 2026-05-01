@@ -15,8 +15,8 @@ if (!url || !key) {
 }
 
 const html = fs.readFileSync(SRC, 'utf8')
-  .replace(/__SUPABASE_URL__/g, url)
-  .replace(/__SUPABASE_ANON_KEY__/g, key);
+  .replace(/%%SUPABASE_URL_VALUE%%/g, url)
+  .replace(/%%SUPABASE_ANON_KEY_VALUE%%/g, key);
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 fs.writeFileSync(OUT, html);

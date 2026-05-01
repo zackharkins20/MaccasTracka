@@ -822,10 +822,12 @@
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  // ===== Supabase config — replaced at deploy time =====
+  // ===== Supabase config — replaced at deploy time by build.js =====
   // Set to null/empty to fall back to localStorage-only mode.
-  window.__SUPABASE_URL__ = "__SUPABASE_URL__";
-  window.__SUPABASE_ANON_KEY__ = "__SUPABASE_ANON_KEY__";
+  window.SB_CONFIG = {
+    url: "%%SUPABASE_URL_VALUE%%",
+    key: "%%SUPABASE_ANON_KEY_VALUE%%"
+  };
 </script>
 <script>
 (async function() {
@@ -844,9 +846,9 @@
   let REVIEWER = localStorage.getItem(REVIEWER_KEY) || '';
 
   // Supabase client (only if config is real, not the placeholder)
-  const SB_URL = window.__SUPABASE_URL__;
-  const SB_KEY = window.__SUPABASE_ANON_KEY__;
-  const SUPABASE_ON = SB_URL && SB_KEY && !SB_URL.includes('__SUPABASE_URL__') && SB_URL.startsWith('http');
+  const SB_URL = (window.SB_CONFIG && window.SB_CONFIG.url) || '';
+  const SB_KEY = (window.SB_CONFIG && window.SB_CONFIG.key) || '';
+  const SUPABASE_ON = SB_URL && SB_KEY && !SB_URL.includes('%%') && SB_URL.startsWith('http');
   let sb = null;
   if (SUPABASE_ON && window.supabase) {
     sb = window.supabase.createClient(SB_URL, SB_KEY, { realtime: { params: { eventsPerSecond: 5 } } });
