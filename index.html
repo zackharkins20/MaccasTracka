@@ -979,11 +979,6 @@ document.addEventListener('DOMContentLoaded',()=>{
       <input type="checkbox" id="lyr-hob">
       Height of Buildings
     </label>
-    <label>
-      <span class="swatch" style="background:linear-gradient(135deg,#FFF8E6 0%,#F2A900 100%);"></span>
-      <input type="checkbox" id="lyr-lot">
-      Min Lot Size
-    </label>
     <div id="planning-opacity-row" style="display:none; padding: 4px 0 0 4px; font-size:10px; color:#666;">
       <label style="display:flex;align-items:center;gap:6px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#999;">
         Opacity
@@ -1526,7 +1521,6 @@ async function initApp() {
     zoning: { id: 2, label: 'Land Zoning' },
     fsr:    { id: 1, label: 'Floor Space Ratio' },
     hob:    { id: 5, label: 'Max Height' },
-    lot:    { id: 4, label: 'Min Lot Size' },
   };
   const planningLayers = {};
   Object.entries(PLANNING_LAYERS).forEach(([key, cfg]) => {
@@ -1546,7 +1540,7 @@ async function initApp() {
   function refreshPlanningOpacityRow() {
     document.getElementById('planning-opacity-row').style.display = activePlanningCount() ? 'block' : 'none';
   }
-  ['zoning','fsr','hob','lot'].forEach(key => {
+  ['zoning','fsr','hob'].forEach(key => {
     const chk = document.getElementById('lyr-' + key);
     if (!chk) return;
     chk.addEventListener('change', e => {
@@ -1592,7 +1586,7 @@ async function initApp() {
         if (!a) return `<div><b style="color:#888;font-size:10px;letter-spacing:1px;text-transform:uppercase;">${label}</b><br><span style="color:#999;">No data</span></div>`;
         let val = '';
         if (key === 'zoning') val = `<span style="background:var(--mc-red);color:#fff;padding:2px 8px;border-radius:999px;font-weight:800;font-size:11px;">${a.SYM_CODE || '?'}</span> <span>${a.LAY_CLASS || ''}</span>`;
-        else val = `<b style="color:var(--mc-red);font-size:13px;">${a.LAY_CLASS || '—'}</b>${key==='hob'?' m':key==='lot'?' m²':key==='fsr'?' :1':''}`;
+        else val = `<b style="color:var(--mc-red);font-size:13px;">${a.LAY_CLASS || '—'}</b>${key==='hob'?' m':key==='fsr'?' :1':''}`;
         return `<div style="margin-bottom:6px;"><b style="color:#888;font-size:10px;letter-spacing:1px;text-transform:uppercase;">${label}</b><br>${val}</div>`;
       }).join('');
       popup.setContent(`<div style="padding:4px 2px; font-family:'Poppins',sans-serif; min-width:200px;">${lines}<div style="font-size:9px; color:#bbb; letter-spacing:1px; text-transform:uppercase; margin-top:4px; padding-top:4px; border-top:1px dashed #eee;">NSW Planning Portal</div></div>`);
