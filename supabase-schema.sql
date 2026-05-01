@@ -47,6 +47,22 @@ create policy "auth_insert" on site_reviews for insert with check (auth.uid() is
 create policy "auth_update" on site_reviews for update using (auth.uid() is not null);
 create policy "auth_delete" on site_reviews for delete using (auth.uid() is not null);
 
+-- ===== Isochrone cache (drive-time polygons from OpenRouteService) =====
+create table if not exists isochrones (
+  lng       double precision not null,
+  lat       double precision not null,
+  minutes   integer not null,
+  geojson   jsonb not null,
+  cached_at timestamptz not null default now(),
+  primary key (lng, lat, minutes)
+);
+
+alter table isochrones enable row level security;
+
+drop policy if exists "iso_read" on isochrones;
+create policy "iso_read" on isochrones for select using (auth.uid() is not null);
+-- writes only happen via service role from the API function
+
 -- Realtime publication (idempotent)
 do $$
 begin
