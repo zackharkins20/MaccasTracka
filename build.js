@@ -7,8 +7,9 @@ const SRC = path.join(__dirname, 'index.html');
 const OUT_DIR = path.join(__dirname, 'dist');
 const OUT = path.join(OUT_DIR, 'index.html');
 
-const url = process.env.SUPABASE_URL || '';
-const key = process.env.SUPABASE_ANON_KEY || '';
+// Trim — `echo | vercel env add` injects trailing newlines that break JS
+const url = (process.env.SUPABASE_URL || '').trim();
+const key = (process.env.SUPABASE_ANON_KEY || '').trim();
 
 if (!url || !key) {
   console.warn('⚠ SUPABASE_URL / SUPABASE_ANON_KEY not set — site will fall back to localStorage-only mode.');
