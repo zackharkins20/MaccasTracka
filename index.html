@@ -170,6 +170,10 @@
     border: 3px solid var(--mc-yellow);
     box-shadow: 0 10px 30px rgba(0,0,0,.2) !important;
   }
+  .leaflet-popup.planning-id-popup .leaflet-popup-content-wrapper {
+    border-color: var(--pop) !important;
+  }
+  .leaflet-popup.planning-id-popup .leaflet-popup-tip { border-top-color: var(--pop) !important; }
   .leaflet-popup-content { margin: 14px 16px !important; font-family: 'Poppins', sans-serif; }
   .leaflet-popup-tip { border-top-color: var(--mc-yellow) !important; }
 
@@ -958,6 +962,35 @@ document.addEventListener('DOMContentLoaded',()=>{
       <label style="padding:2px 0;"><input type="radio" name="iso-min" value="15"> 15 min</label>
       <div id="iso-mode-label" style="font-size: 9px; color: #aaa; margin-top: 4px; letter-spacing: 1px;">~40 km/h avg</div>
     </div>
+
+    <h4 style="margin: 10px 0 4px; font-size: 10px; font-weight: 800; letter-spacing: 1.5px; color: #999; text-transform: uppercase; border-top: 2px dashed #f0e8c8; padding-top: 8px;">Planning Overlays</h4>
+    <label>
+      <span class="swatch" style="background:linear-gradient(135deg,#FFE066 0%,#F2A900 50%,#DA291C 100%);"></span>
+      <input type="checkbox" id="lyr-zoning">
+      Land Zoning (LEP)
+    </label>
+    <label>
+      <span class="swatch" style="background:linear-gradient(135deg,#E8F5EE 0%,#22A06B 100%);"></span>
+      <input type="checkbox" id="lyr-fsr">
+      Floor Space Ratio
+    </label>
+    <label>
+      <span class="swatch" style="background:linear-gradient(135deg,#E6F0FA 0%,#2D6FB7 100%);"></span>
+      <input type="checkbox" id="lyr-hob">
+      Height of Buildings
+    </label>
+    <label>
+      <span class="swatch" style="background:linear-gradient(135deg,#FFF8E6 0%,#F2A900 100%);"></span>
+      <input type="checkbox" id="lyr-lot">
+      Min Lot Size
+    </label>
+    <div id="planning-opacity-row" style="display:none; padding: 4px 0 0 4px; font-size:10px; color:#666;">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#999;">
+        Opacity
+        <input type="range" id="planning-opacity" min="0.15" max="0.95" step="0.05" value="0.6" style="flex:1;accent-color:var(--mc-red);">
+        <span id="planning-opacity-val" style="width:30px;text-align:right;color:var(--mc-red);font-weight:900;">60%</span>
+      </label>
+    </div>
   </div>
 </div>
 
@@ -1005,6 +1038,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/esri-leaflet@3.0.12/dist/esri-leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -1483,6 +1517,88 @@ async function initApp() {
   });
   document.querySelectorAll('input[name="iso-min"]').forEach(r => {
     r.addEventListener('change', () => { rebuildIso(+r.value); });
+  });
+
+  // ===== NSW Planning Portal overlays =====
+  // Single MapServer hosts: 1=FSR, 2=Land Zoning, 4=Lot Size, 5=Height of Buildings
+  const PLANNING_MAPSERVER = 'https://mapprod1.environment.nsw.gov.au/arcgis/rest/services/Planning/EPI_Primary_Planning_Layers/MapServer';
+  const PLANNING_LAYERS = {
+    zoning: { id: 2, label: 'Land Zoning' },
+    fsr:    { id: 1, label: 'Floor Space Ratio' },
+    hob:    { id: 5, label: 'Max Height' },
+    lot:    { id: 4, label: 'Min Lot Size' },
+  };
+  const planningLayers = {};
+  Object.entries(PLANNING_LAYERS).forEach(([key, cfg]) => {
+    planningLayers[key] = L.esri.dynamicMapLayer({
+      url: PLANNING_MAPSERVER,
+      layers: [cfg.id],
+      opacity: 0.6,
+      f: 'image',
+      format: 'png32',
+      transparent: true,
+      attribution: 'NSW Planning Portal'
+    });
+  });
+  function activePlanningCount() {
+    return Object.values(planningLayers).filter(l => map.hasLayer(l)).length;
+  }
+  function refreshPlanningOpacityRow() {
+    document.getElementById('planning-opacity-row').style.display = activePlanningCount() ? 'block' : 'none';
+  }
+  ['zoning','fsr','hob','lot'].forEach(key => {
+    const chk = document.getElementById('lyr-' + key);
+    if (!chk) return;
+    chk.addEventListener('change', e => {
+      if (e.target.checked) planningLayers[key].addTo(map);
+      else map.removeLayer(planningLayers[key]);
+      refreshPlanningOpacityRow();
+    });
+  });
+  const opSlider = document.getElementById('planning-opacity');
+  const opVal = document.getElementById('planning-opacity-val');
+  if (opSlider) opSlider.addEventListener('input', e => {
+    const v = +e.target.value;
+    opVal.textContent = Math.round(v * 100) + '%';
+    Object.values(planningLayers).forEach(l => l.setOpacity(v));
+  });
+
+  // Click anywhere on the map → identify which zone that point is in (only when a planning overlay is on)
+  map.on('click', async e => {
+    if (!activePlanningCount()) return;
+    const visible = Object.entries(PLANNING_LAYERS).filter(([k]) => map.hasLayer(planningLayers[k]));
+    if (!visible.length) return;
+    // Use a tiny popup near the click while we resolve
+    const popup = L.popup({ maxWidth: 260, className: 'planning-id-popup' })
+      .setLatLng(e.latlng)
+      .setContent('<div style="font-size:11px;color:#888;padding:4px;">Identifying planning data…</div>')
+      .openOn(map);
+    try {
+      const results = await Promise.all(visible.map(async ([key, cfg]) => {
+        const params = new URLSearchParams({
+          geometry: `${e.latlng.lng},${e.latlng.lat}`,
+          geometryType: 'esriGeometryPoint',
+          inSR: '4326', outSR: '4326',
+          spatialRel: 'esriSpatialRelIntersects',
+          returnGeometry: 'false',
+          outFields: '*', f: 'json'
+        });
+        const r = await fetch(`${PLANNING_MAPSERVER}/${cfg.id}/query?${params}`);
+        const j = await r.json();
+        const a = j.features && j.features[0] && j.features[0].attributes;
+        return [key, cfg.label, a];
+      }));
+      const lines = results.map(([key, label, a]) => {
+        if (!a) return `<div><b style="color:#888;font-size:10px;letter-spacing:1px;text-transform:uppercase;">${label}</b><br><span style="color:#999;">No data</span></div>`;
+        let val = '';
+        if (key === 'zoning') val = `<span style="background:var(--mc-red);color:#fff;padding:2px 8px;border-radius:999px;font-weight:800;font-size:11px;">${a.SYM_CODE || '?'}</span> <span>${a.LAY_CLASS || ''}</span>`;
+        else val = `<b style="color:var(--mc-red);font-size:13px;">${a.LAY_CLASS || '—'}</b>${key==='hob'?' m':key==='lot'?' m²':key==='fsr'?' :1':''}`;
+        return `<div style="margin-bottom:6px;"><b style="color:#888;font-size:10px;letter-spacing:1px;text-transform:uppercase;">${label}</b><br>${val}</div>`;
+      }).join('');
+      popup.setContent(`<div style="padding:4px 2px; font-family:'Poppins',sans-serif; min-width:200px;">${lines}<div style="font-size:9px; color:#bbb; letter-spacing:1px; text-transform:uppercase; margin-top:4px; padding-top:4px; border-top:1px dashed #eee;">NSW Planning Portal</div></div>`);
+    } catch (err) {
+      popup.setContent('<div style="font-size:11px;color:var(--mc-red);">Failed to load planning data.</div>');
+    }
   });
 
   document.getElementById('lyr-sites').addEventListener('change', e => {
