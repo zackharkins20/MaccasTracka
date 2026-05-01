@@ -1377,9 +1377,9 @@ async function initApp() {
     EXISTING.forEach(m => {
       L.circle([m.lat, m.lng], {
         radius: r,
-        color: '#DA291C', weight: 1.5, opacity: 0.65,
-        fillColor: '#FFC72C', fillOpacity: 0.12,
-        interactive: false
+        color: '#aaa', weight: 1, opacity: 0.5,
+        fillColor: '#ddd', fillOpacity: 0.08,
+        dashArray: '4,4', interactive: false
       }).addTo(isoLayer);
     });
   }
@@ -1388,61 +1388,98 @@ async function initApp() {
     isoLayer.clearLayers();
     L.geoJSON({type:'FeatureCollection', features}, {
       style: {
-        color: '#DA291C', weight: 2, opacity: 0.7,
-        fillColor: '#FFC72C', fillOpacity: 0.18,
+        color: '#DA291C', weight: 2.5, opacity: 0.8,
+        fillColor: '#FFC72C', fillOpacity: 0.22,
         interactive: false
       }
     }).addTo(isoLayer);
   }
 
+  function setIsoLabel(text, color) {
+    const lbl = document.getElementById('iso-mode-label');
+    if (lbl) {
+      lbl.textContent = text;
+      lbl.style.color = color || '#aaa';
+    }
+  }
+
+  let isoFetchToken = 0; // increments to invalidate stale fetches
   async function fetchIsochrones(minutes) {
-    if (ISO_CACHE[minutes]) { drawReal(ISO_CACHE[minutes]); isoMode = 'real'; return true; }
+    if (ISO_CACHE[minutes]) {
+      drawReal(ISO_CACHE[minutes]); isoMode = 'real';
+      setIsoLabel('OpenRouteService · road network', '#22A06B');
+      return true;
+    }
     if (!sb || !SUPABASE_ON) return false;
     const { data: { session } } = await sb.auth.getSession();
     if (!session) return false;
+
+    const myToken = ++isoFetchToken;
+    setIsoLabel(`Loading ${minutes}-min trade areas…`, '#DA291C');
+
+    // Run chunks in parallel for speed (53 stores / 5 = 11 parallel requests)
     const points = EXISTING.map(m => [m.lng, m.lat]);
-    const all = [];
-    // ORS API allows max 5 locations per call — chunk
+    const chunks = [];
+    for (let i = 0; i < points.length; i += 5) chunks.push(points.slice(i, i + 5));
     try {
-      for (let i = 0; i < points.length; i += 5) {
-        const chunk = points.slice(i, i + 5);
-        const r = await fetch('/api/isochrones', {
+      const results = await Promise.all(chunks.map(chunk =>
+        fetch('/api/isochrones', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`
           },
           body: JSON.stringify({ points: chunk, minutes })
-        });
-        if (!r.ok) {
-          // Likely missing ORS_API_KEY — silently fall back to circles
-          if (r.status === 500) { console.info('ORS not configured — using approximate circles'); return false; }
-          console.warn('Isochrone fetch failed:', r.status, await r.text());
-          return false;
-        }
-        const json = await r.json();
-        all.push(...(json.features || []));
+        }).then(async r => {
+          if (!r.ok) {
+            if (r.status === 500) console.info('ORS not configured');
+            else console.warn('Isochrone chunk failed:', r.status, await r.text());
+            return null;
+          }
+          return r.json();
+        })
+      ));
+      // Stale fetch (user changed minutes since this started) — discard
+      if (myToken !== isoFetchToken) return false;
+      if (results.some(r => r === null)) {
+        setIsoLabel('Couldn\'t load — using approximate circles', '#888');
+        return false;
       }
-    } catch (e) { console.warn('Iso fetch error:', e); return false; }
-    ISO_CACHE[minutes] = all;
-    drawReal(all);
-    isoMode = 'real';
-    const lbl = document.getElementById('iso-mode-label');
-    if (lbl) lbl.textContent = 'OpenRouteService · road network';
-    return true;
+      const all = results.flatMap(r => r.features || []);
+      ISO_CACHE[minutes] = all;
+      drawReal(all);
+      isoMode = 'real';
+      setIsoLabel('OpenRouteService · road network', '#22A06B');
+      return true;
+    } catch (e) {
+      console.warn('Iso fetch error:', e);
+      setIsoLabel('Couldn\'t load — using approximate circles', '#888');
+      return false;
+    }
   }
 
   function rebuildIso(minutes) {
-    drawCircles(minutes); // immediate placeholder
-    fetchIsochrones(minutes); // upgrades to real if available
+    // If we already have real cached data for this minute, draw it directly
+    if (ISO_CACHE[minutes]) { drawReal(ISO_CACHE[minutes]); }
+    else { drawCircles(minutes); } // dashed-grey placeholder while loading
+    fetchIsochrones(minutes);
   }
-  rebuildIso(10);
 
   const isoChk = document.getElementById('lyr-iso');
   const isoControls = document.getElementById('iso-controls');
+  function currentIsoMinutes() {
+    const r = document.querySelector('input[name="iso-min"]:checked');
+    return r ? +r.value : 10;
+  }
   isoChk.addEventListener('change', e => {
-    if (e.target.checked) { isoLayer.addTo(map); isoControls.style.display = 'block'; }
-    else { map.removeLayer(isoLayer); isoControls.style.display = 'none'; }
+    if (e.target.checked) {
+      isoLayer.addTo(map);
+      isoControls.style.display = 'block';
+      rebuildIso(currentIsoMinutes());
+    } else {
+      map.removeLayer(isoLayer);
+      isoControls.style.display = 'none';
+    }
   });
   document.querySelectorAll('input[name="iso-min"]').forEach(r => {
     r.addEventListener('change', () => { rebuildIso(+r.value); });
