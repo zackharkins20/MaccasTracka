@@ -1,5 +1,5 @@
--- Costi Cohen × McDonald's Site Finder — shared review schema
--- Run this once in the Supabase SQL Editor (Dashboard → SQL → New Query)
+-- Costi Cohen × McDonald's Site Finder — shared review schema (v2: auth-aware)
+-- Run this in the Supabase SQL Editor. Idempotent — safe to re-run.
 
 create table if not exists site_reviews (
   address       text primary key,
@@ -22,21 +22,37 @@ drop trigger if exists site_reviews_touch on site_reviews;
 create trigger site_reviews_touch before update on site_reviews
   for each row execute function touch_updated_at();
 
--- Enable Row Level Security with permissive team-access policy
--- (Tighten this later if you want auth — for now anyone with the anon key reads/writes.)
+-- ===== Auth-aware RLS =====
+-- v1 had permissive `using (true)` policies that let any anon-key holder
+-- read/write. v2 requires an authenticated user (via Supabase Auth) for
+-- writes, so only logged-in team members can mutate the table.
+
 alter table site_reviews enable row level security;
 
-drop policy if exists "team_read" on site_reviews;
-create policy "team_read" on site_reviews for select using (true);
-
-drop policy if exists "team_write" on site_reviews;
-create policy "team_write" on site_reviews for insert with check (true);
-
+-- Drop legacy permissive policies if they exist
+drop policy if exists "team_read"   on site_reviews;
+drop policy if exists "team_write"  on site_reviews;
 drop policy if exists "team_update" on site_reviews;
-create policy "team_update" on site_reviews for update using (true);
-
 drop policy if exists "team_delete" on site_reviews;
-create policy "team_delete" on site_reviews for delete using (true);
 
--- Enable realtime on the table so teammates see live changes
-alter publication supabase_realtime add table site_reviews;
+-- New auth-gated policies
+drop policy if exists "auth_read"   on site_reviews;
+drop policy if exists "auth_insert" on site_reviews;
+drop policy if exists "auth_update" on site_reviews;
+drop policy if exists "auth_delete" on site_reviews;
+
+-- Anyone with a valid Supabase Auth session can read/write
+create policy "auth_read"   on site_reviews for select using (auth.uid() is not null);
+create policy "auth_insert" on site_reviews for insert with check (auth.uid() is not null);
+create policy "auth_update" on site_reviews for update using (auth.uid() is not null);
+create policy "auth_delete" on site_reviews for delete using (auth.uid() is not null);
+
+-- Realtime publication (idempotent)
+do $$
+begin
+  perform 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'site_reviews';
+  if not found then
+    alter publication supabase_realtime add table site_reviews;
+  end if;
+end $$;
